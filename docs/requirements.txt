@@ -1,0 +1,4 @@
+numpy==2.4.6
+sphinx==9.0.4
+sphinx-rtd-theme==3.1.0
+h5py==3.16.0

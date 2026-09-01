@@ -1,14 +1,28 @@
 [project]
 name = "dataset-suite"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+version = "0.1.1"
+authors = [
+  { name="Jakub Dranczewski", email="jakub.dranczewski@gmail.com" },
+]
+description = "Store scientific data in HDF5 files, but with pleasant Python bindings"
+readme = "README.rst"
 requires-python = ">=3.10"
 dependencies = [
     "h5py>=3.16.0",
     "matplotlib",
     "numpy>2.0.0",
 ]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Development Status :: 3 - Alpha"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/jdranczewski/dataset-suite"
+"Documentation" = "https://dataset-suite.readthedocs.io"
+"Bug Tracker" = "https://github.com/jdranczewski/dataset-suite/issues"
 
 [dependency-groups]
 dev = [
