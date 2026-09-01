@@ -7,15 +7,16 @@
 import os
 import sys
 import tomllib
+
 sys.path.append(os.path.abspath("../.."))
 sys.path.append(os.path.abspath("_ext"))
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'dataset-suite'
-copyright = '2026, Jakub Dranczewski'
-author = 'jdranczewski'
+project = "dataset-suite"
+copyright = "2026, Jakub Dranczewski"
+author = "jdranczewski"
 with open("../../pyproject.toml", "rb") as f:
     release = tomllib.load(f)["project"]["version"]
 
@@ -38,5 +39,5 @@ autodoc_typehints = "description"
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'sphinx_rtd_theme'
+html_theme = "sphinx_rtd_theme"
 html_static_path = []

@@ -4,10 +4,6 @@ with multidimensional set. Store scientific data in HDF5 files, but with pleasan
 Python bindings!
 
 Code by Jakub Dranczewski
-jdranczewski.github.io
-jbd17@ic.ac.uk
-jakub.dranczewski@gmail.com
-^ one of these will work
 
 MIT License
 
@@ -34,6 +30,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
+from collections import abc
 import numpy as np
 import os
 import re
@@ -43,136 +40,9 @@ from glob import glob as _glob
 import h5py
 
 
-def folders(folder="", rel_current=True):
-    """
-    Returns a list of folders within a specified directory. Current directory by default.
-    Set rel_current to False to return just the folder names, instead of the full path
-    relative to current directory.
-    """
-    if rel_current:
-        return [
-            os.path.join(*list(os.path.split(x)[:-1]))
-            for x in glob(os.path.join(folder, "*", ""))
-        ]
-    else:
-        return [os.path.split(x)[-2] for x in glob(os.path.join(folder, "*", ""))]
-
-
-def prefixes(folder, split, yes=[], no=[]):
-    """
-    Returns a list of file prefixes in a given folder that match some conditions.
-    'prefix' is defined as the part of the filename before the string given as 'split'.
-    'yes' and 'no' are lists/tuples or string that should/should not be in the full file
-    name, so act as filters.
-    """
-    files = os.listdir(folder)
-    for s in yes + [split]:
-        files = [x for x in files if s in x]
-    for s in no:
-        files = [x for x in files if s not in x]
-    prefixes = list(set([x.split(split)[0] for x in files]))
-    prefixes.sort()
-    return prefixes
-
-
-def glob(path, yes=[], no=[]):
-    """
-    A small extension to the excellent glob library. 'path' is defined as for the usual
-    glob: a Unix-style pathname with * as a wildcard.
-    'yes' and 'no' are lists/tuples or string that should/should not be in the full file
-    name, so act as filters.
-    """
-    files = _glob(path)
-    for s in yes:
-        files = [x for x in files if s in x]
-    for s in no:
-        files = [x for x in files if s not in x]
-    files.sort()
-    return files
-
-
-def extract(string, *patterns):
-    """
-    Given a string and an arbitrary number of patterns as arguments, this function extracts
-    associated numbers from the string. For example, '_P_' as a pattern will match '_P_123'
-    in a filename and return 123.
-    """
-    return [
-        int(re.search(pattern + "([0-9]+)", string).group(1)) for pattern in patterns
-    ]
-
-
-def extract_raw(string, *patterns):
-    """
-    You can write regex? Good for you.
-    Given a string and an arbitrary number of patterns as arguments, this function extracts
-    associated things from the string. You have to include a capture group, otherwise errors ensue.
-    """
-    return [re.search(pattern, string).group(1) for pattern in patterns]
-
-
-def extract_unique(files, pattern):
-    numbers = list(set([extract(x, pattern)[0] for x in files]))
-    numbers.sort()
-    return numbers
-
-
-def _sort_key(x, pattern):
-    try:
-        return int(re.search(pattern + "([0-9]+)", x).group(1))
-    except AttributeError:
-        return 1e10
-
-
-def sort_by(files, pattern):
-    """
-    Given a list of strings (like file names or sth) and a pattern, the functions extracts
-    an associated numeric parameter from each string and sorts the list according to that
-    parameter.
-
-    For example, if your files contain power information as '_P_123', pass '_P_' as 'pattern'.
-    Sorting happens in-place in the passed list, so nothing is returned.
-    """
-    files.sort(key=lambda x: _sort_key(x, pattern))
-
-
-def colours(values, cmap: str | None = None, minmax=None):
-    # Check if matplotlib needs to be imported.
-    # We only do this here, as this takes a bit of time, so it's silly to do this
-    # every time the full library is imported.
-    if "matplotlib" not in globals():
-        global matplotlib
-        import matplotlib
-
-    # Default colourmap
-    if cmap is None:
-        cmap = "viridis"
-    cmap_obj = matplotlib.colormaps[cmap]
-
-    if minmax is None:
-        a, b = np.amin(values), np.amax(values)
-    else:
-        a, b = minmax
-
-    if len(values) == 1:
-        return cmap_obj((0,))
-    return cmap_obj((values - a) / (b - a))
-
-
-def map_axes(data, **axes):
-    """
-    Helper function for figuring out how the axes you have map to the data.
-    data is the ndarray, and then you pass your axes in any order as keyword arguments.
-    """
-    data = np.asarray(data)
-    shape = data.shape
-    for s in shape:
-        print(s, [key for key in axes if len(axes[key]) == s])
-
-
 def load(filename):
     """
-    Load a dataset-suite object saved as a pickle with `save`.
+    Load a dataset-suite object saved as a pickle with :func:`dataset_suite.base_dataobject.save`.
     """
     with gzip.open(filename, "rb") as f:
         return pickle.load(f)
@@ -180,7 +50,7 @@ def load(filename):
 
 def load_h5(filename):
     """
-    Load a dataset-suite object saved as a HDF5 file with `save_h5`.
+    Load a dataset-suite object saved as a HDF5 file with :func:`dataset_suite.base_dataobject.save_h5`.
     """
     with h5py.File(filename, "r") as h5:
         return _from_h5_router(h5)
@@ -267,12 +137,31 @@ def _from_h5_router(h5: h5py.File | h5py.Group | h5py.Dataset):
     raise ValueError(f"No valid dataset-suite object type found for {h5}")
 
 
-class _base_dataobject:
+class base_dataobject:
     def save(self, filename, compress=6) -> None:
+        """
+        A dataset, datadict, or datalist can be saved as a compressed file to the drive.
+        Use :func:`dataset_suite.load` to get an object from said file.
+
+        This method saves as a gzipped pickle, which is very flexible in terms of what objects
+        and data can be saved, **but requires the user to have the libraries for all pickled
+        objects installed**. If you pickle a datadict that includes a pytorch tensor, a person
+        loading the file has to have pytorch installed. Mismatched package versions can also
+        lead to trouble (most notably numpy <2.0 and >2.0).
+
+        Generally it is advisable to use :func:`dataset_suite.base_dataobject.save_h5` and :func:`dataset_suite.load_h5` instead.
+        """
         with gzip.open(filename, "wb", compresslevel=compress) as f:
             pickle.dump(self, f)
 
     def save_h5(self, filename: str, compress: int = 6) -> None:
+        """
+        A dataset, datadict, or datalist can be saved as a compressed HDF5 file to the drive.
+        Use :func:`dataset_suite.load_h5` to get an object from said file.
+
+        HDF5 files are a standard format, and you can use viewers like
+        https://myhdf5.hdfgroup.org/ to inspect them.
+        """
         with h5py.File(filename, "w", track_order=True) as f:
             self._populate_h5(f, compress)
             # It's possible that the _populate call above didn't create a metadata group, check and create
@@ -292,9 +181,16 @@ class _base_dataobject:
         raise NotImplementedError
 
 
-class dataset(_base_dataobject):
+class dataset(base_dataobject):
     """
     A container for data arrays with labelled axes.
+
+    Provide an array of data, and keyword arguments defining the values of the dataset's axes::
+
+        ds.dataset(spectrum, pixel=np.arange(spectrum.shape[0]), wavelength=wavelengths)
+
+    This way the axes of the data array are labelled, and information about what each row/column/...
+    corresponds to is stored right with the data.
     """
 
     def __init__(self, data, cut=None, **axes):
@@ -448,12 +344,14 @@ class dataset(_base_dataobject):
         )
 
 
-class datalist(_base_dataobject):
+class datalist(base_dataobject):
     """
     A container for data, like a list, but with an axis array that can contain values.
 
     For example, this could store a dataset for each stage position in a scan (but generally
     you should consider if using a dataset directly may not be better).
+
+    ``axis`` is the name for the datalists one axis.
     """
 
     def __init__(self, axis, cut=None):
@@ -534,10 +432,12 @@ class datalist(_base_dataobject):
         return str(self._datasets)
 
 
-class datadict(_base_dataobject):
+class datadict(base_dataobject):
     """
     A key: value store for data like a Python dictionary, but with the metadata, cut, and save mechanics
     from the dataset object.
+
+    ``name`` is the name of this datadict.
     """
 
     def __init__(self, name, cut=None):
@@ -614,10 +514,194 @@ class datadict(_base_dataobject):
         return "datadict({}: {})".format(self._name, ", ".join(self._dict.keys()))
 
 
-# Printing a datadict
+## Dictionary utilities
+
+
+def print_dict(data: dict, offset=0):
+    """
+    Print a nicely formatted view of the data in a nested
+    dictionary/datadict.
+    """
+    for key in data:
+        print(f"{offset*4*' '}{key}:  ", end="")
+        value = data[key]
+        print_value(value, offset)
+        print("")
+
+
+def to_datadict(name, data):
+    """
+    Convert a dictionary-like object to a datadict for saving.
+    Tries its best to make numpy arrays out of things.
+    """
+    dd = datadict(name)
+    for key in data:
+        value = data[key]
+        if isinstance(value, datadict):
+            # Save datadicts directly
+            pass
+        elif isinstance(value, dict):
+            # Convert dicts to datadicts recursively
+            value = to_datadict(key, value)
+        else:
+            # Attempt to convert other stuff to a numpy array
+            try:
+                value = np.asarray(value)
+            except ValueError:
+                if isinstance(value, abc.Iterable):
+                    # If the numpy array conversion fails, but the value is iterable, convert to a list of arrays
+                    output = []
+                    for subvalue in value:
+                        try:
+                            output.append(np.asarray(subvalue))
+                        except ValueError:
+                            output.append(subvalue)
+                    value = output
+        # Save the converted (or not) value to the new datadict
+        dd[key] = value
+    return dd
+
+
+## File traversal utilities
+
+
+def glob(path, yes=[], no=[]):
+    """
+    A small extension to the excellent glob library. 'path' is defined as for the usual
+    glob: a Unix-style pathname with * as a wildcard.
+    'yes' and 'no' are lists/tuples or string that should/should not be in the full file
+    name, so act as filters.
+    """
+    files = _glob(path)
+    for s in yes:
+        files = [x for x in files if s in x]
+    for s in no:
+        files = [x for x in files if s not in x]
+    files.sort()
+    return files
+
+
+def folders(folder="", rel_current=True):
+    """
+    Returns a list of folders within a specified directory. Current directory by default.
+    Set rel_current to False to return just the folder names, instead of the full path
+    relative to current directory.
+    """
+    if rel_current:
+        return [
+            os.path.join(*list(os.path.split(x)[:-1]))
+            for x in glob(os.path.join(folder, "*", ""))
+        ]
+    else:
+        return [os.path.split(x)[-2] for x in glob(os.path.join(folder, "*", ""))]
+
+
+def prefixes(folder, split, yes=[], no=[]):
+    """
+    Returns a list of file prefixes in a given folder that match some conditions.
+    'prefix' is defined as the part of the filename before the string given as 'split'.
+    'yes' and 'no' are lists/tuples or string that should/should not be in the full file
+    name, so act as filters.
+    """
+    files = os.listdir(folder)
+    for s in yes + [split]:
+        files = [x for x in files if s in x]
+    for s in no:
+        files = [x for x in files if s not in x]
+    prefixes = list(set([x.split(split)[0] for x in files]))
+    prefixes.sort()
+    return prefixes
+
+
+def extract(string, *patterns):
+    """
+    Given a string and an arbitrary number of patterns as arguments, this function extracts
+    associated numbers from the string. For example, '_P_' as a pattern will match '_P_123'
+    in a filename and return 123.
+    """
+    return [
+        int(re.search(pattern + "([0-9]+)", string).group(1)) for pattern in patterns
+    ]
+
+
+def extract_raw(string, *patterns):
+    """
+    You can write regex? Good for you.
+    Given a string and an arbitrary number of patterns as arguments, this function extracts
+    associated things from the string. You have to include a capture group, otherwise errors ensue.
+    """
+    return [re.search(pattern, string).group(1) for pattern in patterns]
+
+
+def extract_unique(files, pattern):
+    """
+    Like :func:`dataset-suite.extract`, but returns a list of unique matched values in a list of filenames.
+    """
+    numbers = list(set([extract(x, pattern)[0] for x in files]))
+    numbers.sort()
+    return numbers
+
+
+def _sort_key(x, pattern):
+    try:
+        return int(re.search(pattern + "([0-9]+)", x).group(1))
+    except AttributeError:
+        return 1e10
+
+
+def sort_by(files, pattern):
+    """
+    Given a list of strings (like file names or sth) and a pattern, the functions extracts
+    an associated numeric parameter from each string and sorts the list according to that
+    parameter.
+
+    For example, if your files contain power information as '_P_123', pass '_P_' as 'pattern'.
+    Sorting happens in-place in the passed list, so nothing is returned.
+    """
+    files.sort(key=lambda x: _sort_key(x, pattern))
+
+
+def colours(values, cmap: str | None = None, minmax=None):
+    """
+    Return a list of colours that a matplotlib colourmap would assign to the given
+    values. ``minmax`` is a tuple of ``v_min, v_max`` boundaries for the colourmap.
+    """
+    # Check if matplotlib needs to be imported.
+    # We only do this here, as this takes a bit of time, so it's silly to do this
+    # every time the full library is imported.
+    if "matplotlib" not in globals():
+        global matplotlib
+        import matplotlib
+
+    # Default colourmap
+    if cmap is None:
+        cmap = "viridis"
+    cmap_obj = matplotlib.colormaps[cmap]
+
+    if minmax is None:
+        a, b = np.amin(values), np.amax(values)
+    else:
+        a, b = minmax
+
+    if len(values) == 1:
+        return cmap_obj((0,))
+    return cmap_obj((values - a) / (b - a))
+
+
+def map_axes(data, **axes):
+    """
+    Helper function for figuring out how the axes you have map to the data.
+    data is the ndarray, and then you pass your axes in any order as keyword arguments.
+    """
+    data = np.asarray(data)
+    shape = data.shape
+    for s in shape:
+        print(s, [key for key in axes if len(axes[key]) == s])
+
+
 def print_value(value, offset=0):
     """
-    Print a value with standard formatting. Used in ``print_dict``.
+    Print a value with standard formatting. Used in :func:`dataset_suite.print_dict`.
     """
     if isinstance(value, np.ndarray):
         if len(value.shape):
@@ -638,15 +722,3 @@ def print_value(value, offset=0):
         if len(rep) > 60:
             rep = f"{rep[:29]}..{rep[-29:]}"
         print(rep, end="")
-
-
-def print_dict(data: dict, offset=0):
-    """
-    Print a nicely formatted view of the data in a nested
-    dictionary/datadict.
-    """
-    for key in data:
-        print(f"{offset*4*' '}{key}:  ", end="")
-        value = data[key]
-        print_value(value, offset)
-        print("")

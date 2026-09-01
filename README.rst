@@ -10,6 +10,9 @@ with multidimensional set.
 * Documentation: https://dataset-suite.readthedocs.io
 * Repository: https://github.com/jdranczewski/dataset-suite-pip
 
+Parts of this code were created as part of PhD work supported by the EU ITN EID
+project CORAL (GA no. 859841).
+
 Installation
 ------------
 You can install this package from pip::
