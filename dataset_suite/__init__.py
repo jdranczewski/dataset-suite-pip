@@ -83,6 +83,12 @@ def _to_h5_router(
         sub_group: h5py.Group = group.create_group(key, track_order=True)
         data._populate_h5(sub_group, compression)
         return sub_group
+    if data is None:
+        # Special case, handled as an Empty dataset
+        sub_group: h5py.Dataset = group.create_dataset(
+            key, dtype="int8"
+        )
+        return sub_group
     else:
         try:
             # Is it a numpy array, or something that can be cast to a homogeneous numpy array?
@@ -120,6 +126,8 @@ def _to_h5_router(
 def _from_h5_router(h5: h5py.File | h5py.Group | h5py.Dataset):
     if isinstance(h5, h5py.Dataset):
         value = h5[...]
+        if value.shape is None:
+            return None
         if not len(value.shape):
             # just a single value rather than an array
             value = value[()]
@@ -326,16 +334,20 @@ class dataset(base_dataobject):
         data_group.attrs["axes"] = axes
 
         # Store metadata
-        _dict_to_h5(h5, "metadata", self.metadata, compression)
-        _dict_to_h5(h5, "cut", self.cut, compression)
+        if len(self.metadata.keys()):
+            _dict_to_h5(h5, "metadata", self.metadata, compression)
+        if len(self.cut.keys()):
+            _dict_to_h5(h5, "cut", self.cut, compression)
 
     @classmethod
     def from_h5(cls, h5: h5py.File | h5py.Group):
         axes = {
             axis_key: h5["data"][axis_key][...] for axis_key in h5["data"].attrs["axes"]
         }
-        obj = cls(h5["data"]["values"], _h5_to_dict(h5["cut"]), **axes)
-        obj.metadata = _h5_to_dict(h5["metadata"])
+        cut = _h5_to_dict(h5["cut"]) if "cut" in h5 else None
+        obj = cls(h5["data"]["values"], cut, **axes)
+        if "metadata" in h5:
+            obj.metadata = _h5_to_dict(h5["metadata"])
         return obj
 
     def __repr__(self):
@@ -409,14 +421,18 @@ class datalist(base_dataobject):
             group.attrs["axis_value"] = value
 
         # Store metadata
-        _dict_to_h5(h5, "metadata", self.metadata, compression)
-        _dict_to_h5(h5, "cut", self.cut, compression)
+        if len(self.metadata.keys()):
+            _dict_to_h5(h5, "metadata", self.metadata, compression)
+        if len(self.cut.keys()):
+            _dict_to_h5(h5, "cut", self.cut, compression)
 
     @classmethod
     def from_h5(cls, h5: h5py.File | h5py.Group):
         axis = h5["data"].attrs["axes"][0]
-        obj = cls(axis, _h5_to_dict(h5["cut"]))
-        obj.metadata = _h5_to_dict(h5["metadata"])
+        cut = _h5_to_dict(h5["cut"]) if "cut" in h5 else None
+        obj = cls(axis, cut)
+        if "metadata" in h5:
+            obj.metadata = _h5_to_dict(h5["metadata"])
         axis_values = h5["data"][axis][...]
         for i, axis_value in enumerate(axis_values):
             obj.append(_from_h5_router(h5["data"][str(i)]), axis_value)
@@ -499,13 +515,17 @@ class datadict(base_dataobject):
             _to_h5_router(data_group, key, data, compression)
 
         # Store metadata
-        _dict_to_h5(h5, "metadata", self.metadata, compression)
-        _dict_to_h5(h5, "cut", self.cut, compression)
+        if len(self.metadata.keys()):
+            _dict_to_h5(h5, "metadata", self.metadata, compression)
+        if len(self.cut.keys()):
+            _dict_to_h5(h5, "cut", self.cut, compression)
 
     @classmethod
     def from_h5(cls, h5: h5py.File | h5py.Group):
-        obj = cls(h5.attrs["datadict_name"], _h5_to_dict(h5["cut"]))
-        obj.metadata = _h5_to_dict(h5["metadata"])
+        cut = _h5_to_dict(h5["cut"]) if "cut" in h5 else None
+        obj = cls(h5.attrs["datadict_name"], cut)
+        if "metadata" in h5:
+            obj.metadata = _h5_to_dict(h5["metadata"])
         for key in h5["data"]:
             obj[key] = _from_h5_router(h5["data"][key])
         return obj
@@ -529,6 +549,39 @@ def print_dict(data: dict, offset=0):
         print("")
 
 
+def _handle_dict_value(key, value):
+    """
+    Convert value to a standar format - for use in
+    :func:`dataset_suite.to_datadict`.
+    """
+    if isinstance(value, datadict):
+        # Save datadicts directly
+        return value
+    elif isinstance(value, dict):
+        # Convert dicts to datadicts recursively
+        return to_datadict(key, value)
+    else:
+        # Attempt to convert other stuff to a numpy array
+        try:
+            array = np.asarray(value)
+            if len(array.shape) == 0:
+                # The value is a scalar
+                return value
+            if array.dtype == np.dtype("O"):
+                raise ValueError("The value was a list of objects")
+            return array
+        except ValueError:
+            if isinstance(value, abc.Iterable):
+                # If the numpy array conversion fails, but the value is iterable, convert to a list of arrays
+                output = []
+                for i, subvalue in enumerate(value):
+                    output.append(_handle_dict_value(str(i), subvalue))
+                return output
+            else:
+                # Give up
+                return value
+
+
 def to_datadict(name, data):
     """
     Convert a dictionary-like object to a datadict for saving.
@@ -537,26 +590,7 @@ def to_datadict(name, data):
     dd = datadict(name)
     for key in data:
         value = data[key]
-        if isinstance(value, datadict):
-            # Save datadicts directly
-            pass
-        elif isinstance(value, dict):
-            # Convert dicts to datadicts recursively
-            value = to_datadict(key, value)
-        else:
-            # Attempt to convert other stuff to a numpy array
-            try:
-                value = np.asarray(value)
-            except ValueError:
-                if isinstance(value, abc.Iterable):
-                    # If the numpy array conversion fails, but the value is iterable, convert to a list of arrays
-                    output = []
-                    for subvalue in value:
-                        try:
-                            output.append(np.asarray(subvalue))
-                        except ValueError:
-                            output.append(subvalue)
-                    value = output
+        value = _handle_dict_value(key, value)
         # Save the converted (or not) value to the new datadict
         dd[key] = value
     return dd

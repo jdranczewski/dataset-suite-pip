@@ -1,6 +1,13 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dataset_suite"]
+
 [project]
 name = "dataset-suite"
-version = "0.2.0"
+version = "0.3.0"
 authors = [
   { name="Jakub Dranczewski", email="jakub.dranczewski@gmail.com" },
 ]
