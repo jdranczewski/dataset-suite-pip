@@ -85,9 +85,7 @@ def _to_h5_router(
         return sub_group
     if data is None:
         # Special case, handled as an Empty dataset
-        sub_group: h5py.Dataset = group.create_dataset(
-            key, dtype="int8"
-        )
+        sub_group: h5py.Dataset = group.create_dataset(key, dtype="int8")
         return sub_group
     else:
         try:
