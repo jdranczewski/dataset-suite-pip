@@ -7,7 +7,7 @@ packages = ["dataset_suite"]
 
 [project]
 name = "dataset-suite"
-version = "0.3.0"
+version = "0.3.1"
 authors = [
   { name="Jakub Dranczewski", email="jakub.dranczewski@gmail.com" },
 ]

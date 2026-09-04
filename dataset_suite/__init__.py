@@ -417,7 +417,7 @@ class datalist(base_dataobject):
         data_group.attrs["axes"] = self.axes
         _to_h5_router(data_group, self.axes[0], self.axis, compression)
         for i, value, data in zip(range(len(self.axis)), self.axis, self._datasets):
-            group = _to_h5_router(data_group, str(i), value, compression)
+            group = _to_h5_router(data_group, str(i), data, compression)
             group.attrs["axis_value"] = value
 
         # Store metadata
@@ -573,9 +573,9 @@ def _handle_dict_value(key, value):
         except ValueError:
             if isinstance(value, abc.Iterable):
                 # If the numpy array conversion fails, but the value is iterable, convert to a list of arrays
-                output = []
+                output = datalist("list")
                 for i, subvalue in enumerate(value):
-                    output.append(_handle_dict_value(str(i), subvalue))
+                    output.append(_handle_dict_value(str(i), subvalue), i)
                 return output
             else:
                 # Give up
