@@ -30,7 +30,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-from collections import abc
 import numpy as np
 import os
 import re
@@ -85,15 +84,15 @@ def _to_h5_router(
         return sub_group
     if data is None:
         # Special case, handled as an Empty dataset
-        sub_group: h5py.Dataset = group.create_dataset(key, dtype="int8")
-        return sub_group
+        sub_dataset: h5py.Dataset = group.create_dataset(key, dtype="int8")
+        return sub_dataset
     else:
         try:
             # Is it a numpy array, or something that can be cast to a homogeneous numpy array?
-            sub_group: h5py.Dataset = group.create_dataset(
+            sub_dataset: h5py.Dataset = group.create_dataset(
                 key, data=data, compression="gzip", compression_opts=compression
             )
-            return sub_group
+            return sub_dataset
         except (TypeError, ValueError):
             # Is it a scalar that can be stored as an un-compressed dataset?
             try:
@@ -101,11 +100,11 @@ def _to_h5_router(
                 # https://docs.h5py.org/en/latest/strings.html
                 if isinstance(data, np.ndarray) and "U" in str(data.dtype):
                     data = str(data)
-                sub_group: h5py.Dataset = group.create_dataset(
+                sub_dataset: h5py.Dataset = group.create_dataset(
                     key,
                     data=data,
                 )
-                return sub_group
+                return sub_dataset
             except (TypeError, ValueError):
                 # Is it a list or tuple?
                 try:
@@ -376,7 +375,7 @@ class datalist(base_dataobject):
         self._cut = cut
         self.metadata = {}
 
-    def append(self, ds, value):
+    def append(self, ds, value=np.nan):
         try:
             ds.add_cut(self._axes[0], value)
         except AttributeError:
@@ -416,7 +415,7 @@ class datalist(base_dataobject):
         _to_h5_router(data_group, self.axes[0], self.axis, compression)
         for i, value, data in zip(range(len(self.axis)), self.axis, self._datasets):
             group = _to_h5_router(data_group, str(i), data, compression)
-            group.attrs["axis_value"] = value
+            group.attrs["axis_value"] = value if value is not None else np.nan
 
         # Store metadata
         if len(self.metadata.keys()):
@@ -535,7 +534,7 @@ class datadict(base_dataobject):
 ## Dictionary utilities
 
 
-def print_dict(data: dict, offset=0):
+def print_dict(data: dict | datadict, offset=0):
     """
     Print a nicely formatted view of the data in a nested
     dictionary/datadict.
@@ -552,8 +551,14 @@ def _handle_dict_value(key, value):
     Convert value to a standar format - for use in
     :func:`dataset_suite.to_datadict`.
     """
-    if isinstance(value, datadict):
-        # Save datadicts directly
+    if isinstance(value, (dataset, datadict)):
+        # Save datasets and datadicts directly
+        return value
+    elif isinstance(value, datalist):
+        output = datalist(value.axes[0], value.cut)
+        output.metadata = value.metadata
+        for i, sub_value in enumerate(value):
+            output.append(_handle_dict_value(str(i), sub_value), value.axis[i])
         return value
     elif isinstance(value, dict):
         # Convert dicts to datadicts recursively
@@ -569,13 +574,13 @@ def _handle_dict_value(key, value):
                 raise ValueError("The value was a list of objects")
             return array
         except ValueError:
-            if isinstance(value, abc.Iterable):
+            try:
                 # If the numpy array conversion fails, but the value is iterable, convert to a list of arrays
                 output = datalist("list")
                 for i, subvalue in enumerate(value):
                     output.append(_handle_dict_value(str(i), subvalue), i)
                 return output
-            else:
+            except Exception:
                 # Give up
                 return value
 
