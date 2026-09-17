@@ -30,6 +30,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
+from collections import UserDict
 import numpy as np
 import os
 import re
@@ -445,7 +446,7 @@ class datalist(base_dataobject):
         return str(self._datasets)
 
 
-class datadict(base_dataobject):
+class datadict(base_dataobject, UserDict):
     """
     A key: value store for data like a Python dictionary, but with the metadata, cut, and save mechanics
     from the dataset object.
@@ -455,17 +456,17 @@ class datadict(base_dataobject):
 
     def __init__(self, name, cut=None):
         self._name = name
-        self._dict = {}
         if cut is None:
             cut = {}
         self._cut = cut
         self.metadata = {}
+        super().__init__()
 
     def add_cut(self, key, value):
         self._cut[key] = value
         for element in self:
             try:
-                self._dict[element].add_cut(key, value)
+                self.data[element].add_cut(key, value)
             except AttributeError:
                 pass
 
@@ -475,32 +476,19 @@ class datadict(base_dataobject):
 
     @property
     def dict(self):
-        return self._dict
+        return self.data
 
     @property
     def cut(self):
         return self._cut
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key, item):
         try:
-            value.add_cut(self._name, key)
+            item.add_cut(self._name, key)
         except AttributeError:
             pass
 
-        self._dict[key] = value
-
-    def __iter__(self):
-        for key in self._dict:
-            yield key
-
-    def __getitem__(self, key):
-        return self._dict[key]
-
-    def __contains__(self, item):
-        return item in self._dict
-
-    def keys(self):
-        return self._dict.keys()
+        super().__setitem__(key, item)
 
     def _populate_h5(self, h5: h5py.File | h5py.Group, compression: int) -> None:
         h5.attrs["dataset_type"] = "datadict"
@@ -528,7 +516,7 @@ class datadict(base_dataobject):
         return obj
 
     def __repr__(self):
-        return "datadict({}: {})".format(self._name, ", ".join(self._dict.keys()))
+        return "datadict({}: {})".format(self._name, ", ".join(self.data.keys()))
 
 
 ## Dictionary utilities
@@ -559,7 +547,7 @@ def _handle_dict_value(key, value):
         output.metadata = value.metadata
         for i, sub_value in enumerate(value):
             output.append(_handle_dict_value(str(i), sub_value), value.axis[i])
-        return value
+        return output
     elif isinstance(value, dict):
         # Convert dicts to datadicts recursively
         return to_datadict(key, value)
