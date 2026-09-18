@@ -178,6 +178,7 @@ class base_dataobject:
                 else f.create_group("metadata", track_order=True)
             )
             meta_group.create_dataset("filename", data=os.path.basename(filename))
+            meta_group.create_dataset("original_path", data=os.path.abspath(filename))
 
     @classmethod
     def from_h5(cls, h5: h5py.File | h5py.Group):
